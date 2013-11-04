@@ -20,22 +20,16 @@ class br24_ctrl_window(threading.Thread):
         master.wm_title("BR24 radar options")
 
         self.br = br
-        self.log_frame = tk.Frame(self.master)
-        self.log_label = tk.Label(self.log_frame, text = 'Enable logging')
-        self.log_label.pack()
-        self.log_check = tk.Checkbutton(self.log_frame, command= self.set_log)
-        self.logging = False
-        self.log_file = []
-        self.log_list = []
-        self.log_check.pack()
-        self.log_frame.pack()
-
 
         self.frame = tk.Frame(self.master)
         self.local_interference_opts = ['off', 'low','medium', 'high']
         self.interference_reject_opts = ['off', 'low','medium', 'high']
         self.target_boost_opts = ['off', 'low', 'high']
         self.radar_range_opts = ['50 m','75 m','100 m','250 m','500 m','750 m','1 km','1.5 km','2 km','3 km','4 km','6 km','8 km','12 km','16 km','24 km']
+        self.fp_opts = ['Gain', 'Rain Clutter Filter', 'Sea Clutter Filter']
+        self.fp_vals = ['auto_gain', 'manual_gain', 'rain_clutter_manual', 'sea_clutter_auto', 'sea_clutter_manual']
+        self.fp_opts = ['Auto']
+        print self.fp_opts.extend(range(1,0x50))
 
         self.button1 = tk.Button(self.frame, text = 'Start Radar', width = 25, command = self.start_driver)
         self.button1.pack()
@@ -63,11 +57,22 @@ class br24_ctrl_window(threading.Thread):
         self.local_interference_label.pack()
         self.local_interference_cbox = ttk.Combobox(self.frame, values=self.local_interference_opts)
         self.local_interference_cbox.pack()
+        
+        self.fp_frame = tk.Frame(self.frame)
+        self.gain_label = tk.Label(self.fp_frame, text = "Gain:")
+        self.gain_label.pack()
+        self.gain_cbox = ttk.Combobox(self.fp_frame, values=self.fp_opts)
+        self.gain_cbox.pack()
+        self.rainc_label = tk.Label(self.fp_frame, text = "Rain Clutter")
+        self.rainc_label.pack()
+        self.rainc_cbox = ttk.Combobox(self.fp_frame, values=self.fp_opts[1:])
+        self.rainc_cbox.pack()
+        self.seac_label = tk.Label(self.fp_frame, text = "Sea Clutter:")
+        self.seac_label.pack()
+        self.seac_cbox = ttk.Combobox(self.fp_frame, values=self.fp_opts)
+        self.seac_cbox.pack()
+        self.fp_frame.pack(pady=5)
 
-        self.local_interference_label = tk.Label(self.frame, text = "Local Interference Filter:")
-        self.local_interference_label.pack()
-        self.local_interference_cbox = ttk.Combobox(self.frame, values=self.local_interference_opts)
-        self.local_interference_cbox.pack()
 
         self.frame.pack()
 
@@ -93,16 +98,6 @@ class br24_ctrl_window(threading.Thread):
 
     def set_driver(self,br):
         self.br = br
-
-    def set_log(self):
-        self.logging = not self.logging
-        if self.logging:
-            ts = datetime.datetime.fromtimestamp(time.time())
-            time_stamp = "%d%d%d%d%d%d"%(ts.year,ts.month,ts.day,ts.hour,ts.minute,ts.second)
-            self.log_file = open("br24_log_%s"%(time_stamp),"w+")
-        else:
-            self.log_file.close()
-
 
     def start_driver(self):
         if not self.br.is_alive():
@@ -160,11 +155,6 @@ class br24_ctrl_window(threading.Thread):
             while self.br.scanline_ready():
                 sc = self.br.get_scanline()
                 self.image_window.draw_scanline(sc)
-                if self.logging:
-                    self.log_list.append(sc)
-                    if len(self.log_list) > 1024:
-                        self.log_file.write(yaml.dump(self.log_list))
-                        self.log_list=[]
 
                 if last_angle > sc['angle']:
                     #self.image_window.update_radar_image()
