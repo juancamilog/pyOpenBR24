@@ -210,6 +210,11 @@ class br24_image_window:
             #y = int(center + r*scale*cos_ang)
             self.pixels[x,y] = (0,intensity,40)
 
+    def draw_scanline_ros(self, msg):
+        sc['data'] = msg.scanline_data
+        sc['angle'] = msg.angle
+        self.draw_scanline(sc)
+
     def update_radar_image(self):
         radar_imagetk = ImageTk.PhotoImage(self.radar_image)
         self.radar_image_label.configure(image = radar_imagetk)
