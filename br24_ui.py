@@ -121,7 +121,6 @@ class br24_ctrl_window(threading.Thread):
         print "setting "
         self.br.increase_scan_speed(val)
 
-
     def radar_range_cmd(self, event):
         val = self.radar_range_cbox.get() 
         if val is not '':
@@ -194,23 +193,29 @@ class br24_image_window:
         self.frame.pack()
         self.master.after(self.refresh_period, self.update_radar_image)
 
+        #configure resize event
+        self.master.bind('<Configure>', self.resize)
+
+
     def draw_scanline(self,sc):
         ang = sc['angle']*self.angle_increment
         cos_ang = math.cos(ang)
         sin_ang = math.sin(ang)
-        scale = self.radar_image_label.winfo_width()/1024.0
-        center = self.radar_image_label.winfo_width()/2.0
+        scale = self.radar_image_label.winfo_height()/1024.0
+        center_x = self.radar_image_label.winfo_width()/2.0
+        center_y = self.radar_image_label.winfo_height()/2.0
         height = self.radar_image_label.winfo_height()
         r_max = len(sc['data'])
 
         for r in xrange(r_max):
             intensity = ord(sc['data'][r])
-            x = int(center + r*scale*sin_ang)
-            y = height - int(center + r*scale*cos_ang)
+            x = int(center_x + r*scale*sin_ang)
+            y = height - int(center_y + r*scale*cos_ang)
             #y = int(center + r*scale*cos_ang)
-            self.pixels[x,y] = (0,intensity,40)
+            self.pixels[x,y] = (0,intensity,20)
 
     def draw_scanline_ros(self, msg):
+        sc = {}
         sc['data'] = msg.scanline_data
         sc['angle'] = msg.angle
         self.draw_scanline(sc)
@@ -220,6 +225,11 @@ class br24_image_window:
         self.radar_image_label.configure(image = radar_imagetk)
         self.radar_image_label._image_cache = radar_imagetk
         self.master.after(self.refresh_period, self.update_radar_image)
+
+    def resize(self,event):
+        self.radar_image = Image.new("RGB", (1024,1024), "black")
+        self.pixels = self.radar_image.load()
+
 
 if __name__ == '__main__':
     br = br24_driver.br24()
