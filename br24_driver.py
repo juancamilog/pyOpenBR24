@@ -24,7 +24,7 @@ class multicast_socket(Process):
         self.buffer_size = buffer_size
         self.name = name
         self.data_q = data_q
-        self.max_qsize = 128
+        self.max_qsize = 512
 
         # init socket as inet udp multicast
         self.sock = socket.socket(socket.AF_INET, socket.SOCK_DGRAM, socket.IPPROTO_UDP)
@@ -75,7 +75,7 @@ class multicast_socket(Process):
             if data_q.qsize() > max_qsize:
                 data_q.get()
             data_q.put(data)
-            time.sleep(0.0001)
+            time.sleep(0.00001)
 
     def stop(self):
         print "Stopping multicast socket %s..."%(self.name)
@@ -150,9 +150,9 @@ class br24_frame_decoder:
         #TODO add a timeout
         state,scanline_idx,num_scanlines,scanline_size,scanline_header_size,curr_sc,scanline_header,scanline_data = self.make_local_copy()
         i = 0
-        while i < len(data):
+        nbytes = len(data)
+        while i < nbytes:
             byte = data[i]
-            i+=1
             # check if we have a valid header (i.e. starting with 01 00 00 00 00)
             if state <= self.FR_START_DONE: 
                 if byte == self.FRAME_START_SEQUENCE[state]:
@@ -192,9 +192,29 @@ class br24_frame_decoder:
                         scanline_idx = 0
                         num_scanlines=-1
                         break
+            # process scanline header bytes
+            elif state == self.SC_HEADER:
+                #scanline_header.append(byte);
+                end_index = i + min(scanline_header_size-len(scanline_header),nbytes-i) 
+                scanline_header.extend(data[i:end_index]);
+                #advance counter for bytes read
+                i=end_index-1
+                #print "header: %s size %s"%(scanline_header,scanline_header_size)
+                # if we got the full header, extract the data
+                if len(scanline_header) == scanline_header_size:
+                    curr_sc['status'] = ord(scanline_header[1])
+                    curr_sc['index'] = ord(scanline_header[2]) | ord(scanline_header[4])<<8
+                    curr_sc['angle'] = ord(scanline_header[8]) | ord(scanline_header[9])<<8
+                    curr_sc['scale'] = ord(scanline_header[12]) | ord(scanline_header[13])<<8
+                    curr_sc['time'] = time.time()
+                    state = self.SC_DATA
             # process scanline bytes
             elif state == self.SC_DATA:
-                scanline_data.append(byte);
+                #scanline_data.append(byte);
+                end_index = i + min(scanline_size-len(scanline_data),nbytes-i) 
+                scanline_data.extend(data[i:end_index]);
+                #advance counter for bytes read
+                i=end_index-1
                 # if we finished current scanline bytes, update scanline index
                 if len(scanline_data) == scanline_size:
                     scanline_idx +=1
@@ -209,18 +229,9 @@ class br24_frame_decoder:
                         state = self.FR_WAIT
                         scanline_idx = 0
                         num_scanlines=-1
-            # process scanline header bytes
-            elif state == self.SC_HEADER:
-                scanline_header.append(byte);
-                #print "header: %s size %s"%(scanline_header,scanline_header_size)
-                # if we got the full header, extract the data
-                if len(scanline_header) == scanline_header_size:
-                    curr_sc['status'] = ord(scanline_header[1])
-                    curr_sc['index'] = ord(scanline_header[2]) | ord(scanline_header[4])<<8
-                    curr_sc['angle'] = ord(scanline_header[8]) | ord(scanline_header[9])<<8
-                    curr_sc['scale'] = ord(scanline_header[12]) | ord(scanline_header[13])<<8
-                    curr_sc['time'] = time.time()
-                    state = self.SC_DATA
+
+            #increase counter
+            i+=1
         
         self.restore_from_local_copy(state,scanline_idx,num_scanlines,scanline_size,scanline_header_size,curr_sc,scanline_header,scanline_data)
 
@@ -362,7 +373,7 @@ class br24(Process):
                 if self.data_q.qsize()>2:
                     self.scan_data_decoder.fill(self.data_q.get())
                     #cProfile.runctx('self.scan_data_decoder.fill(self.data_q.get())',globals(),locals())
-                time.sleep(0.0001)
+                time.sleep(0.00001)
                 
     def stop(self):
         print "Stopping radar driver..."
