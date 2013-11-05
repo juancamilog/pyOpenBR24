@@ -4,7 +4,7 @@ import subprocess
 from os import path
 from scapy.all import *
 from scapy.utils import rdpcap
-from BR24_driver import multicast_socket
+from br24_driver import multicast_socket
 import time
 import StringIO
 import binascii
@@ -22,11 +22,14 @@ def reassemble_packet(fragment_list):
     return b[8:packet_length]
 
 if __name__=="__main__":
+    interface_ip  = '192.168.8.2'
+    #interface_ip  = None
+
     scale = 1.0
     mcastsocket = {}
-    mcastsocket['236.6.7.8'] = multicast_socket('236.6.7.8', 6678, name="scan_data")
-    mcastsocket['236.6.7.9'] = multicast_socket('236.6.7.9', 6679, name="command_response" )
-    mcastsocket['236.6.7.10'] = multicast_socket('236.6.7.10', 6680, name="command_request")
+    mcastsocket['236.6.7.8'] = multicast_socket('236.6.7.8', 6678, name="scan_data", iface_ip = interface_ip)
+    mcastsocket['236.6.7.9'] = multicast_socket('236.6.7.9', 6679, name="command_response" , iface_ip = interface_ip)
+    mcastsocket['236.6.7.10'] = multicast_socket('236.6.7.10', 6680, name="command_request", iface_ip = interface_ip)
 
     try:
         parser = argparse.ArgumentParser("Replay packets from a pcap_file")

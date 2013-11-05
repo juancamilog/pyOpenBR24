@@ -11,7 +11,7 @@ import cProfile
 
 # A utility class for multicast sockets
 class multicast_socket(Process):
-    def __init__(self, group_addr, group_port, data_q = None, buffer_size = 65536, name=""):
+    def __init__(self, group_addr, group_port, data_q = None, buffer_size = 65536, name="", iface_ip=None):
         # set thread properties
         Process.__init__(self)
         self.alive = Event()
@@ -28,14 +28,22 @@ class multicast_socket(Process):
 
         # init socket as inet udp multicast
         self.sock = socket.socket(socket.AF_INET, socket.SOCK_DGRAM, socket.IPPROTO_UDP)
-        self.sock.setsockopt(socket.IPPROTO_IP, socket.IP_MULTICAST_TTL, 1)
+        self.sock.setsockopt(socket.IPPROTO_IP, socket.IP_MULTICAST_TTL, 2)
         self.sock.setsockopt(socket.IPPROTO_IP, socket.IP_MULTICAST_LOOP, 1)
         self.sock.setsockopt(socket.SOL_SOCKET, socket.SO_REUSEADDR, 1)
-        self.sock.bind((self.address,self.port))
 
         group = socket.inet_aton(self.address)
-        mreq = s_pack('4sl', group, socket.INADDR_ANY)
+        if iface_ip is None:
+            mreq = s_pack('=4sl', group, socket.INADDR_ANY)
+        else:
+            # 
+            print iface_ip
+            mreq = group + socket.inet_aton(iface_ip)
+            self.sock.setsockopt(socket.IPPROTO_IP, socket.IP_MULTICAST_IF, socket.inet_aton(iface_ip))
+
         self.sock.setsockopt(socket.IPPROTO_IP, socket.IP_ADD_MEMBERSHIP, mreq)
+
+        self.sock.bind((self.address,self.port))
 
     def close(self):
         self.sock.close()
@@ -141,38 +149,12 @@ class br24_frame_decoder:
     def fill(self,data):
         #TODO add a timeout
         state,scanline_idx,num_scanlines,scanline_size,scanline_header_size,curr_sc,scanline_header,scanline_data = self.make_local_copy()
-        for byte in data:
-            # process scanline bytes
-            if state == self.SC_DATA:
-                scanline_data.append(byte);
-                # if we finished current scanline bytes, update scanline index
-                if len(scanline_data) == scanline_size:
-                    scanline_idx +=1
-                    curr_sc['data'] = scanline_data
-                    self.scanlines.put(curr_sc)
-                    # keep a fixed amount of scanlines in the queue
-                    if self.scanlines.qsize()>= self.max_scanlines:
-                        self.scanlines.get()
-                    state = self.SC_START_HEADER
-                    # we are DONE!
-                    if scanline_idx == num_scanlines:
-                        state = self.FR_WAIT
-                        scanline_idx = 0
-                        num_scanlines=-1
-            # process scanline header bytes
-            elif state == self.SC_HEADER:
-                scanline_header.append(byte);
-                #print "header: %s size %s"%(scanline_header,scanline_header_size)
-                # if we got the full header, extract the data
-                if len(scanline_header) == scanline_header_size:
-                    curr_sc['status'] = ord(scanline_header[1])
-                    curr_sc['index'] = ord(scanline_header[2]) | ord(scanline_header[4])<<8
-                    curr_sc['angle'] = ord(scanline_header[8]) | ord(scanline_header[9])<<8
-                    curr_sc['scale'] = ord(scanline_header[12]) | ord(scanline_header[13])<<8
-                    curr_sc['time'] = time.time()
-                    state = self.SC_DATA
+        i = 0
+        while i < len(data):
+            byte = data[i]
+            i+=1
             # check if we have a valid header (i.e. starting with 01 00 00 00 00)
-            elif state <= self.FR_START_DONE: 
+            if state <= self.FR_START_DONE: 
                 if byte == self.FRAME_START_SEQUENCE[state]:
                    state += 1
                 else:
@@ -210,6 +192,35 @@ class br24_frame_decoder:
                         scanline_idx = 0
                         num_scanlines=-1
                         break
+            # process scanline bytes
+            elif state == self.SC_DATA:
+                scanline_data.append(byte);
+                # if we finished current scanline bytes, update scanline index
+                if len(scanline_data) == scanline_size:
+                    scanline_idx +=1
+                    curr_sc['data'] = scanline_data
+                    self.scanlines.put(curr_sc)
+                    # keep a fixed amount of scanlines in the queue
+                    if self.scanlines.qsize()>= self.max_scanlines:
+                        self.scanlines.get()
+                    state = self.SC_START_HEADER
+                    # we are DONE!
+                    if scanline_idx == num_scanlines:
+                        state = self.FR_WAIT
+                        scanline_idx = 0
+                        num_scanlines=-1
+            # process scanline header bytes
+            elif state == self.SC_HEADER:
+                scanline_header.append(byte);
+                #print "header: %s size %s"%(scanline_header,scanline_header_size)
+                # if we got the full header, extract the data
+                if len(scanline_header) == scanline_header_size:
+                    curr_sc['status'] = ord(scanline_header[1])
+                    curr_sc['index'] = ord(scanline_header[2]) | ord(scanline_header[4])<<8
+                    curr_sc['angle'] = ord(scanline_header[8]) | ord(scanline_header[9])<<8
+                    curr_sc['scale'] = ord(scanline_header[12]) | ord(scanline_header[13])<<8
+                    curr_sc['time'] = time.time()
+                    state = self.SC_DATA
         
         self.restore_from_local_copy(state,scanline_idx,num_scanlines,scanline_size,scanline_header_size,curr_sc,scanline_header,scanline_data)
 
@@ -242,13 +253,13 @@ class br24(Process):
                            '\x00\x71\x02\x00',
                            '\x80\xa9\x03\x00']
 
-    def __init__(self):
+    def __init__(self, interface_ip = None):
         Process.__init__(self)
         self.data_q = Queue()
 
-        self.scan_data_socket = multicast_socket('236.6.7.8', 6678, data_q = self.data_q, name="scan_data")
-        self.command_response_socket = multicast_socket('236.6.7.9', 6679, name="command_response" )
-        self.command_request_socket = multicast_socket('236.6.7.10', 6680, name="command_request")
+        self.scan_data_socket = multicast_socket('236.6.7.8', 6678, data_q = self.data_q, name="scan_data", iface_ip = interface_ip)
+        self.command_response_socket = multicast_socket('236.6.7.9', 6679, name="command_response", iface_ip = interface_ip)
+        self.command_request_socket = multicast_socket('236.6.7.10', 6680, name="command_request", iface_ip = interface_ip)
         self.radar_on = False
 
         self.alive = Event()
@@ -304,7 +315,7 @@ class br24(Process):
         return False
 
     # TODO figure out if the filtering and preprocessing bits are correct
-    def set_filtering_and_preprocessing(self,option,arg = None):
+    def set_filters_and_preprocessing(self,option,arg = None):
         options = {'auto_gain': '\x00\x00\x00\x00\x01\x00\x00\x00\xA1',
                    'manual_gain': '\x00\x00\x00\x00\x00\x00\x00\x00',
                    'rain_clutter_manual': '\x04\x00\x00\x00\x00\x00\x00\x00',
@@ -312,7 +323,7 @@ class br24(Process):
                    'sea_clutter_manual': '\x02\x00\x00\x00\x00\x00\x00\x00'}
         param = options[option]
         if option == 'manual_gain' or option == 'rain_clutter_manual' or option == 'sea_clutter_manual':
-            param += arg
+            param += chr(arg)
 
         self.send_command(self.CMD_FILTER_AND_PREPROCESS,param)
         pass
