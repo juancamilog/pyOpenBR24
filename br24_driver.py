@@ -75,7 +75,7 @@ class multicast_socket(Process):
             if data_q.qsize() > max_qsize:
                 data_q.get()
             data_q.put(data)
-            time.sleep(0.00001)
+            time.sleep(0.0001)
 
     def stop(self):
         print "Stopping multicast socket %s..."%(self.name)
@@ -183,7 +183,7 @@ class br24_frame_decoder:
             elif state == self.SC_START_HEADER:
                     curr_sc = {}
                     scanline_header = []
-                    scanline_data = []
+                    scanline_data = ''
                     scanline_header_size = ord(byte)
                     scanline_header.append(byte)
                     state = self.SC_HEADER
@@ -212,7 +212,8 @@ class br24_frame_decoder:
             elif state == self.SC_DATA:
                 #scanline_data.append(byte);
                 end_index = i + min(scanline_size-len(scanline_data),nbytes-i) 
-                scanline_data.extend(data[i:end_index]);
+                #scanline_data.extend(data[i:end_index]);
+                scanline_data += data[i:end_index];
                 #advance counter for bytes read
                 i=end_index-1
                 # if we finished current scanline bytes, update scanline index
@@ -286,13 +287,14 @@ class br24(Process):
         time.sleep(0.001)
 
     def start_radar(self):
-        print "Starting radar driver..."
+        print "Starting radar..."
         self.send_command(self.CMD_POWER_1,'\x01')
         self.send_command(self.CMD_POWER_2,'\x01')
         self.radar_on = True
         return True
 
     def stop_radar(self):
+        print "Stopping radar..."
         self.send_command(self.CMD_POWER_1,'\x00')
         self.send_command(self.CMD_POWER_2,'\x00')
         self.radar_on = False
@@ -373,7 +375,7 @@ class br24(Process):
                 if self.data_q.qsize()>2:
                     self.scan_data_decoder.fill(self.data_q.get())
                     #cProfile.runctx('self.scan_data_decoder.fill(self.data_q.get())',globals(),locals())
-                time.sleep(0.00001)
+                time.sleep(0.0001)
                 
     def stop(self):
         print "Stopping radar driver..."
