@@ -1,4 +1,4 @@
 pyOpenBR24
 ==========
 
-Python driver for the BR24 radar based on the OpenBR24 driver
+Python driver for the Simrad BR24 radar. Based on the driver at: http://www.roboat.at/technologie/radar/
