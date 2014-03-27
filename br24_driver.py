@@ -203,7 +203,7 @@ class br24_frame_decoder:
                 # if we got the full header, extract the data
                 if len(scanline_header) == scanline_header_size:
                     curr_sc['status'] = ord(scanline_header[1])
-                    curr_sc['index'] = ord(scanline_header[2]) | ord(scanline_header[4])<<8
+                    curr_sc['index'] = ord(scanline_header[2]) | ord(scanline_header[3])<<8
                     curr_sc['angle'] = ord(scanline_header[8]) | ord(scanline_header[9])<<8
                     curr_sc['scale'] = ord(scanline_header[12]) | ord(scanline_header[13])<<8
                     curr_sc['time'] = time.time()
@@ -347,6 +347,12 @@ class br24(Process):
             return True
         return False
 
+    def set_radar_range_mts(self,new_range):
+        if new_range >= 50 and new_range <= 24000:
+            range_hex = s_pack('<I',new_range*10)
+            self.send_command(self.CMD_RANGE,range_hex)
+            return True
+        return False
 
     ### DATA SOCKET METHODS ###
     def scanline_ready(self):

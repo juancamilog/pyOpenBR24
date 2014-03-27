@@ -5,10 +5,7 @@ import br24_driver
 from PIL import Image, ImageTk
 import time
 import math
-import multiprocessing as mp
 import threading
-import datetime
-import yaml
 
 #class br24_ctrl_window(mp.Process):
 class br24_ctrl_window(threading.Thread):
@@ -73,7 +70,6 @@ class br24_ctrl_window(threading.Thread):
         self.seac_cbox.pack()
         self.fp_frame.pack(pady=5)
 
-
         self.frame.pack()
 
         self.newWindow = tk.Toplevel(self.master)
@@ -90,7 +86,6 @@ class br24_ctrl_window(threading.Thread):
         #self.alive = mp.Event()
         self.alive = threading.Event()
         self.start()
-
 
     def on_focus(self):
         self.image_window.master.lift()
@@ -172,64 +167,134 @@ class br24_ctrl_window(threading.Thread):
 class br24_image_window:
     def __init__(self, master, refresh_period = 500):
         self.refresh_period = refresh_period
+        # initialize the master window
         self.master = master
         master.wm_title("BR24 radar image")
-        self.frame = tk.Frame(self.master)
         self.master.geometry('512x512')
         self.master.aspect(1,1,1,1)
 
-        self.angle_increment = 2*math.pi/4096
+        # create a frame for putting in the content
+        self.frame = tk.Frame(self.master)
 
-        self.radar_image_label = tk.Label(self.frame)
-        self.radar_image_label.pack()
-
-        self.radar_image = Image.new("RGB", (1024,1024), "black")
-        radar_imagetk = ImageTk.PhotoImage(self.radar_image)
-        self.radar_image_label.configure(image = radar_imagetk)
-        self.radar_image_label._image_cache = radar_imagetk
-
+        # create the radar image object
+        self.radar_image = Image.new("RGB", (512,512), "black")
+        self.radar_imagetk = ImageTk.PhotoImage(self.radar_image)
         self.pixels = self.radar_image.load()
 
-        self.frame.pack()
+        # create a canvas for drawing the radar image and indicators
+        self.radar_canvas = tk.Canvas(self.frame)
+        self.radar_image_id = self.radar_canvas.create_image((0,0),image = self.radar_imagetk, anchor="nw")
+
+        # add a scanline indicator
+        self.current_angle=0
+        self.scanline_indicator = self.radar_canvas.create_line(256,256,256,0,fill="#028802",stipple="",arrow=tk.LAST)
+
+        # add the reference circles to the canvas
+        n_circles = 4
+        r_step = 256/n_circles
+        self.reference_circles = [self.radar_canvas.create_oval(0,0,1,1, fill=None, outline="gray25", dash=(4,4)) for x in xrange(n_circles)]
+        # annotate the circles with distances
+        self.reference_labels = [self.radar_canvas.create_text(0,0, text="10", anchor="ne", fill="gray35", font="Helvetica 9") for x in xrange(n_circles)]
+        
+        # place canvas in frame, frame in window
+        self.radar_canvas.pack(fill = "both", expand = 1)
+        self.frame.pack(fill = "both", expand = 1)
+
+        # initialize the event that will redraw the radar image periodically
         self.master.after(self.refresh_period, self.update_radar_image)
 
         #configure resize event
-        self.master.bind('<Configure>', self.resize)
+        self.radar_canvas.bind('<Configure>', self.resize)
 
+        # initialize internal variables
+        self.height =  self.radar_canvas.winfo_height()
+        self.width =  self.radar_canvas.winfo_width()
+        self.angle_increment = 2.0*math.pi/4096.0
+        self.center_x = self.width/2.0
+        self.center_y = self.height/2.0
+        self.radius = 0.5*min(self.height,self.width)
+        self.scale = self.radius/512.0
+        self.scale_mts = 12
+
+        self.mutex = threading.Lock()
+
+    def draw_reference_circles(self):
+        r_step = self.radius/len(self.reference_circles)
+        i=1
+        for circle_id in self.reference_circles:
+            self.radar_canvas.coords(circle_id, self.center_x - i*r_step, self.center_y - i*r_step, self.center_x + i*r_step, self.center_y + i*r_step)
+            i+=1
+
+    def draw_reference_labels(self):
+        r_step = self.radius/len(self.reference_labels)
+        mts_step = 5.0*math.ceil(self.scale_mts*4.0/5.0)/len(self.reference_labels)
+
+        r_step = self.radius/len(self.reference_labels)
+        i=1
+        for label_id in self.reference_labels:
+            self.radar_canvas.coords(label_id, self.center_x + i*r_step, self.center_y)
+            self.radar_canvas.itemconfig(label_id, text="%.2f"%(mts_step*i))
+            i+=1
+
+    def draw_scanline_indicator(self):
+        cos_ang = math.cos(self.current_angle)
+        sin_ang = math.sin(self.current_angle)
+        r = 2*self.radius
+        x = int(self.center_x + r*sin_ang)
+        y = self.height - int(self.center_y + r*cos_ang) - 1
+        self.radar_canvas.coords(self.scanline_indicator,self.center_x,self.center_y,x,y)
 
     def draw_scanline(self,sc):
-        ang = sc['angle']*self.angle_increment
-        cos_ang = math.cos(ang)
-        sin_ang = math.sin(ang)
-        scale = self.radar_image_label.winfo_height()/1024.0
-        center_x = self.radar_image_label.winfo_width()/2.0
-        center_y = self.radar_image_label.winfo_height()/2.0
-        height = self.radar_image_label.winfo_height()
+        self.current_angle= sc['angle']*self.angle_increment
+        cos_ang = math.cos(self.current_angle)
+        sin_ang = math.sin(self.current_angle)
         r_max = len(sc['data'])
 
-        for r in xrange(r_max):
-            intensity = ord(sc['data'][r])
-            x = int(center_x + r*scale*sin_ang)
-            y = height - int(center_y + r*scale*cos_ang)
-            #y = int(center + r*scale*cos_ang)
-            self.pixels[x,y] = (0,intensity,20)
+        with self.mutex:
+            for r in xrange(r_max):
+                intensity = ord(sc['data'][r])
+                x = int(self.center_x + r*self.scale*sin_ang)
+                y = self.height - int(self.center_y + r*self.scale*cos_ang) - 1
+                #y = int(center + r*scale*cos_ang)
+                try:
+                    self.pixels[x,y] = (0,intensity,20)
+                except:
+                    print "index out of range x=%d y=%d (w=%d,h=%d)"%(x,y,self.width,self.height)
 
     def draw_scanline_ros(self, msg):
         sc = {}
         sc['data'] = msg.scanline_data
         sc['angle'] = msg.angle
+        sc['scale'] = msg.scan_radius
         self.draw_scanline(sc)
 
+        if self.scale_mts != msg.scan_radius:
+            self.scale_mts = msg.scan_radius
+            # update the reference labels
+            self.draw_reference_labels()
+
     def update_radar_image(self):
-        radar_imagetk = ImageTk.PhotoImage(self.radar_image)
-        self.radar_image_label.configure(image = radar_imagetk)
-        self.radar_image_label._image_cache = radar_imagetk
+        self.radar_imagetk = ImageTk.PhotoImage(self.radar_image)
+        self.radar_canvas.itemconfigure(self.radar_image_id, image = self.radar_imagetk)
+        self.draw_scanline_indicator()
         self.master.after(self.refresh_period, self.update_radar_image)
 
     def resize(self,event):
-        self.radar_image = Image.new("RGB", (1024,1024), "black")
-        self.pixels = self.radar_image.load()
+        with self.mutex:
+            if event.width == self.width and event.height == self.height:
+                return
+            # update internal variables
+            self.width = event.width
+            self.height = event.height
+            self.center_x = self.width/2.0
+            self.center_y = self.height/2.0
+            self.radius = 0.5*min(self.height,self.width)
+            self.scale = self.radius/512.0
 
+            self.radar_image = Image.new("RGB", (self.width,self.height), "black")
+            self.pixels = self.radar_image.load()
+            self.draw_reference_circles()
+            self.draw_reference_labels()
 
 if __name__ == '__main__':
     br = br24_driver.br24()
